@@ -96,7 +96,7 @@ typedef struct {
     std::map<void*, int32_t> jl_value_to_llvm; // uses 1-based indexing
 } jl_native_code_desc_t;
 
-extern "C"
+extern "C" JL_DLLEXPORT
 void jl_get_function_id(void *native_code, jl_method_instance_t *linfo,
         int32_t *func_idx, int32_t *specfunc_idx)
 {
@@ -123,6 +123,37 @@ int32_t jl_get_llvm_gv(void *native_code, jl_value_t *p)
     }
     return 0;
 }
+
+extern "C" JL_DLLEXPORT
+Module* jl_get_llvm_module(void *native_code)
+{
+    jl_native_code_desc_t *data = (jl_native_code_desc_t*)native_code;
+    if (data)
+        return data->M.get();
+    else
+        return NULL;
+}
+
+extern "C" JL_DLLEXPORT
+GlobalValue* jl_get_llvm_function(void *native_code, uint32_t idx)
+{
+    jl_native_code_desc_t *data = (jl_native_code_desc_t*)native_code;
+    if (data)
+        return data->jl_sysimg_fvars[idx];
+    else
+        return NULL;
+}
+
+extern "C" JL_DLLEXPORT
+LLVMContext* jl_get_llvm_context(void *native_code)
+{
+    jl_native_code_desc_t *data = (jl_native_code_desc_t*)native_code;
+    if (data)
+        return &data->M->getContext();
+    else
+        return NULL;
+}
+
 
 static void emit_offset_table(Module &mod, const std::vector<GlobalValue*> &vars, StringRef name, Type *T_psize)
 {
