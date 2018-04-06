@@ -214,7 +214,7 @@ module LLVMCallFunctionTest
 
     function julia_to_llvm(@nospecialize x)
         isboxed = Ref{UInt8}()
-        ccall(:julia_type_to_llvm,Ptr{Cvoid},(Any,Ref{UInt8}),x,isboxed)
+        ccall(:jl_type_to_llvm, Ptr{Cvoid}, (Any, Ref{UInt8}), x, isboxed)
     end
     const AnyTy = julia_to_llvm(Any)
 
