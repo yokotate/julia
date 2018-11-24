@@ -246,6 +246,30 @@ STATIC_INLINE uint8_t JL_CONST_FUNC jl_gc_szclass(unsigned sz)
     return klass + N;
 }
 
+// Flags that determine when a certain buffer has overrun itself
+#define JL_MEMPROF_BT_OVERFLOW     0x01
+#define JL_MEMPROF_ALLOC_OVERFLOW  0x02
+
+// Tags applied to memory allocations to specify which domain the memory is
+// stored on, and also which "kind" of memory allocator was used.
+// When filtering, a filter tag value of `0xff` means "accept everything".
+// We support the "CPU", "GPU" and "External" (e.g. "other") domains.
+#define JL_MEMPROF_TAG_DOMAIN_CPU           0x01
+#define JL_MEMPROF_TAG_DOMAIN_GPU           0x02
+#define JL_MEMPROF_TAG_DOMAIN_EXTERNAL      0x08
+// We differentiate betweenn just normal "standard" allocation by malloc, versus the
+// "pool" allocator, and finally "bigalloc" for special big things as that's
+// often what we're most interested in, which are the pieces of memory allocated by
+// `jl_gc_big_alloc()`.
+#define JL_MEMPROF_TAG_ALLOC_STDALLOC       0x10
+#define JL_MEMPROF_TAG_ALLOC_POOLALLOC      0x20
+#define JL_MEMPROF_TAG_ALLOC_BIGALLOC       0x40
+
+// Necessary memory profiler prototypes
+JL_DLLEXPORT void jl_memprofile_track_alloc(void *v, uint8_t tag, size_t allocsz);
+JL_DLLEXPORT void jl_memprofile_track_dealloc(void *v, uint8_t tag);
+JL_DLLEXPORT int jl_memprofile_running(void);
+
 #define JL_SMALL_BYTE_ALIGNMENT 16
 #define JL_CACHE_BYTE_ALIGNMENT 64
 // JL_HEAP_ALIGNMENT is the maximum alignment that the GC can provide
@@ -338,7 +362,9 @@ JL_DLLEXPORT jl_value_t *jl_apply_2va(jl_value_t *f, jl_value_t **args, uint32_t
 
 void jl_gc_sync_total_bytes(void);
 void jl_gc_track_malloced_array(jl_ptls_t ptls, jl_array_t *a) JL_NOTSAFEPOINT;
-void jl_gc_count_allocd(size_t sz) JL_NOTSAFEPOINT;
+void jl_gc_count_allocd(void * addr, size_t sz, uint8_t tag) JL_NOTSAFEPOINT;
+void jl_gc_count_freed(void * addr, size_t sz, uint8_t tag) JL_NOTSAFEPOINT;
+void l_gc_count_reallocd(void * oldaddr, size_t oldsz, void * newaddr, size_t newsz) JL_NOTSAFEPOINT;
 void jl_gc_run_all_finalizers(jl_ptls_t ptls);
 
 void gc_queue_binding(jl_binding_t *bnd) JL_NOTSAFEPOINT;
