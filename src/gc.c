@@ -2705,12 +2705,12 @@ static void jl_gc_queue_remset(jl_gc_mark_cache_t *gc_cache, jl_gc_mark_sp_t *sp
     ptls2->heap.rem_bindings.len = n_bnd_refyoung;
 }
 
-static void jl_gc_queue_bt_buf(jl_gc_mark_cache_t *gc_cache, jl_gc_mark_sp_t *sp, jl_ptls_t ptls2)
+static void jl_gc_queue_bt_buf(jl_gc_mark_cache_t *gc_cache, jl_gc_mark_sp_t *sp, uintptr_t * bt_data, size_t bt_size)
 {
     size_t n = 0;
-    while (n+2 < ptls2->bt_size) {
-        if (ptls2->bt_data[n] == JL_BT_INTERP_FRAME) {
-            gc_mark_queue_obj(gc_cache, sp, (jl_value_t*)ptls2->bt_data[n+1]);
+    while (n+2 < bt_size) {
+        if (bt_data[n] == JL_BT_INTERP_FRAME) {
+            gc_mark_queue_obj(gc_cache, sp, (jl_value_t*)bt_data[n+1]);
             n += 2;
         }
         n++;
@@ -2737,8 +2737,11 @@ static int _jl_gc_collect(jl_ptls_t ptls, int full)
         jl_gc_queue_remset(gc_cache, &sp, ptls2);
         // 2.2. mark every thread local root
         jl_gc_queue_thread_local(gc_cache, &sp, ptls2);
-        // 2.3. mark any managed objects in the backtrace buffer
-        jl_gc_queue_bt_buf(gc_cache, &sp, ptls2);
+        // 2.3. mark any managed objects in the backtrace buffers,
+        // so that things like Interpreter frame objects do not disappear.
+        jl_gc_queue_bt_buf(gc_cache, &sp, ptls2->bt_data, ptls2->bt_size);
+        jl_gc_queue_bt_buf(gc_cache, &sp, (uintptr_t *)jl_profile_get_data(), jl_profile_len_data());
+        jl_gc_queue_bt_buf(gc_cache, &sp, (uintptr_t *)jl_memprofile_get_bt_data(), jl_memprofile_len_bt_data());
     }
 
     // 3. walk roots

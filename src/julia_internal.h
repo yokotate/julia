@@ -266,9 +266,15 @@ STATIC_INLINE uint8_t JL_CONST_FUNC jl_gc_szclass(unsigned sz)
 #define JL_MEMPROF_TAG_ALLOC_BIGALLOC       0x40
 
 // Necessary memory profiler prototypes
+JL_DLLEXPORT uint8_t* jl_memprofile_get_bt_data(void);
+JL_DLLEXPORT size_t jl_memprofile_len_bt_data(void);
 JL_DLLEXPORT void jl_memprofile_track_alloc(void *v, uint8_t tag, size_t allocsz);
 JL_DLLEXPORT void jl_memprofile_track_dealloc(void *v, uint8_t tag);
 JL_DLLEXPORT int jl_memprofile_running(void);
+
+// Necessary time profiler prototypes
+JL_DLLEXPORT uint8_t *jl_profile_get_data(void);
+JL_DLLEXPORT size_t jl_profile_len_data(void);
 
 #define JL_SMALL_BYTE_ALIGNMENT 16
 #define JL_CACHE_BYTE_ALIGNMENT 64
