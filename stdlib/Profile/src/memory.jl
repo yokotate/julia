@@ -171,6 +171,7 @@ function read_and_coalesce_memprofile_data()
     alloc_data = unsafe_wrap(Array, get_memprofile_alloc_data(), (get_memprofile_alloc_data_len(),))
 
     # Build backtrace lookup table
+    bt_data = Base._reformat_bt(bt_data)
     bt_lookup = bt_lookup_dict(bt_data)
 
     # These are chunks of memory that have been allocated, but not yet freed.  They are keyed by
@@ -240,4 +241,4 @@ Clear any existing memory profile data from the internal buffers.
 """
 clear_memprofile_data() = ccall(:jl_memprofile_clear_data, Cvoid, ())
 
-end # module Memoryz
+end # module Memory

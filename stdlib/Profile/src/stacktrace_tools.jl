@@ -2,11 +2,11 @@ module StackTraceTools
 import Base.StackTraces: lookup, UNKNOWN, show_spec_linfo, StackFrame
 
 export LineInfoDict, LineInfoFlatDict, ProfileFormat
-export bt_lookup_dict, flatten, callers, tree
+export bt_lookup_dict, flatten, callers, tree, flat
 
 
-const LineInfoDict = Dict{UInt64, Vector{StackFrame}}
-const LineInfoFlatDict = Dict{UInt64, StackFrame}
+const LineInfoDict = Dict{Union{UInt,Base.InterpreterIP}, Vector{StackFrame}}
+const LineInfoFlatDict = Dict{Union{UInt,Base.InterpreterIP}, StackFrame}
 
 struct ProfileFormat
     maxdepth::Int
@@ -34,8 +34,8 @@ Given a list of instruction pointers, build a dictionary mapping from those poin
 LineInfo objects (as returned by `StackTraces.lookup()`).  This allows us to quickly take
 a list of instruction pointers and convert it to `LineInfo` objects.
 """
-function bt_lookup_dict(data::Vector{UInt})
-    return LineInfoDict(UInt64(ip)=>lookup(ip) for ip in unique(data))
+function bt_lookup_dict(data)
+    return LineInfoDict(x=>lookup(x) for x in unique(data))
 end
 
 """
