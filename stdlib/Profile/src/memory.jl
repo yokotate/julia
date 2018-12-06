@@ -22,7 +22,39 @@ clear_malloc_data() = ccall(:jl_clear_malloc_data, Cvoid, ())
 
 
 """
-    init(; bt_size::Integer, alloc_size::Integer, tag_filter::Symbol)
+    build_tag_filter(memory_domain = :all, allocator = :all)
+
+Build a memory profile tag filter that will capture only events matching the given
+filter parameters.  This method is meant to mirror the `#define`'d `JL_MEMPROF_TAG_*`
+values within `julia_internal,.h`.  Valid memory domains are `:cpu`, `:gpu`, `:external`
+and `:all`.  Valid allocators are `:std`, `:pool`, `:big`, and `:all`.
+
+You can build a union of multiple allocators and memory domains by passing in a
+vector of symbols, e.g. `build_tag_filter(:all, [:std, :pool])`.
+"""
+function build_tag_filter(memory_domain = :all, allocator = :all)
+    tag_lookup(d::Dict, s::Symbol) = d[s]
+    tag_lookup(d::Dict, v::Vector{Symbol}) = reduce(|, [d[s] for s in v])
+
+    memory_domain_map = Dict(
+        :cpu => 0x01,
+        :gpu => 0x02,
+        :external => 0x04,
+
+        :all => 0x0f,
+    )
+    allocator_map = Dict(
+        :std => 0x10,
+        :pool => 0x20,
+        :big => 0x40,
+
+        :all => 0xf0,
+    )
+    return tag_lookup(memory_domain_map, memory_domain) | tag_lookup(allocator_map, allocator)
+end
+
+"""
+    init(; bt_size::Integer, alloc_size::Integer, tag_filter::UInt8)
 
 Configure the number `bt_size` of instruction pointers that may be stored for backtraces
 of memory allocation and deallocation locatinos, as well as the number of allocation event
@@ -31,12 +63,12 @@ corresponds to a single line of code; backtraces generally consist of a long lis
 instruction pointers. Default settings can be obtained by calling this function with no
 arguments, and each can be set independently using keywords or in the order `(bt_size, alloc_size)`.
 
-`tag_filter` can be used to filter what kind of events are captured by the memory profiler;
-the tags currently available are `:cpu` and `:gpu`.
+`tag_filter` can be used to filter what kind of events are captured by the memory profiler,
+see `build_tag_filter()` for more.
 """
 function init(; bt_size::Union{Nothing,Integer} = nothing,
                 alloc_size::Union{Nothing,Integer} = nothing,
-                tag_filter::Union{Nothing,Symbol} = nothing)
+                tag_filter::UInt8 = build_tag_filter())
     bt_size_cur = ccall(:jl_memprofile_len_bt_data, Csize_t, ())
     alloc_size_cur = ccall(:jl_memprofile_len_alloc_data, Csize_t, ())
     if bt_size === nothing && alloc_size === nothing
@@ -46,8 +78,6 @@ function init(; bt_size::Union{Nothing,Integer} = nothing,
     end
     bt_size = something(bt_size, bt_size_cur)
     alloc_size = something(alloc_size, alloc_size_cur)
-
-    # This dictionary must be kept in-sync with the `JL_MEMPROF_TAG_*` definitions in `julia_internal.h`
     tag_filter = something(tag_filter, 0xff)
 
     # Sub off to our friend
