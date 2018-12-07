@@ -69,16 +69,8 @@ see `build_tag_filter()` for more.
 function init(; bt_size::Union{Nothing,Integer} = nothing,
                 alloc_size::Union{Nothing,Integer} = nothing,
                 tag_filter::UInt8 = build_tag_filter())
-    bt_size_cur = ccall(:jl_memprofile_len_bt_data, Csize_t, ())
-    alloc_size_cur = ccall(:jl_memprofile_len_alloc_data, Csize_t, ())
-    if bt_size === nothing && alloc_size === nothing
-        # If they're both nothing, don't call init(), just return this immediately, because
-        # we're not going to reallocate anything.
-        return Int(bt_size_cur), Int(alloc_size_cur)
-    end
-    bt_size = something(bt_size, bt_size_cur)
-    alloc_size = something(alloc_size, alloc_size_cur)
-    tag_filter = something(tag_filter, 0xff)
+    bt_size = something(bt_size, get_memprofile_bt_data_maxlen())
+    alloc_size = something(alloc_size, get_memprofile_alloc_data_maxlen())
 
     # Sub off to our friend
     return init(bt_size, alloc_size, tag_filter)
@@ -176,7 +168,7 @@ get_memprofile_alloc_data_len() = convert(Int, ccall(:jl_memprofile_len_alloc_da
 get_memprofile_alloc_data_maxlen() = convert(Int, ccall(:jl_memprofile_maxlen_alloc_data, Csize_t, ()))
 
 get_memprofile_overflow() = ccall(:jl_memprofile_overflow, Cint, ())
-
+get_memprofile_tag_filter() = UInt8(ccall(:jl_memprofile_tag_filter, Cint, ()))
 """
     read_and_coalesce_memprofile_data()
 
