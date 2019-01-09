@@ -243,7 +243,7 @@ function locate_package(pkg::PkgId)::Union{Nothing,String}
     else
         for env in load_path()
             path = manifest_uuid_path(env, pkg)
-            path != nothing && return entry_path(path, pkg.name)
+            path !== nothing && return entry_path(path, pkg.name)
         end
     end
 end
@@ -351,11 +351,11 @@ function project_file_name_uuid_path(project_file::String,
         path = joinpath("src", "$name.jl")
         for line in eachline(io)
             occursin(re_section, line) && break
-            if (m = match(re_name_to_string, line)) != nothing
+            if (m = match(re_name_to_string, line)) !== nothing
                 name = String(m.captures[1])
-            elseif (m = match(re_uuid_to_string, line)) != nothing
+            elseif (m = match(re_uuid_to_string, line)) !== nothing
                 uuid = UUID(m.captures[1])
-            elseif (m = match(re_path_to_string, line)) != nothing
+            elseif (m = match(re_path_to_string, line)) !== nothing
                 path = String(m.captures[1])
             end
         end
@@ -370,7 +370,7 @@ function project_file_manifest_path(project_file::String)::Union{Nothing,String}
         dir = abspath(dirname(project_file))
         for line in eachline(io)
             occursin(re_section, line) && break
-            if (m = match(re_manifest_to_string, line)) != nothing
+            if (m = match(re_manifest_to_string, line)) !== nothing
                 return normpath(joinpath(dir, m.captures[1]))
             end
         end
@@ -387,10 +387,10 @@ end
 function manifest_file_name_uuid(manifest_file::String, name::String, io::IO)::Union{Nothing,UUID}
     uuid = name′ = nothing
     for line in eachline(io)
-        if (m = match(re_section_capture, line)) != nothing
+        if (m = match(re_section_capture, line)) !== nothing
             name′ == name && break
             name′ = String(m.captures[1])
-        elseif (m = match(re_uuid_to_string, line)) != nothing
+        elseif (m = match(re_uuid_to_string, line)) !== nothing
             uuid = UUID(m.captures[1])
         end
     end
@@ -454,13 +454,13 @@ function explicit_project_deps_get(project_file::String, name::String)::Union{Bo
                 if occursin(re_section, line)
                     root_name == name && return root_uuid
                     state = occursin(re_section_deps, line) ? :deps : :other
-                elseif (m = match(re_name_to_string, line)) != nothing
+                elseif (m = match(re_name_to_string, line)) !== nothing
                     root_name = String(m.captures[1])
-                elseif (m = match(re_uuid_to_string, line)) != nothing
+                elseif (m = match(re_uuid_to_string, line)) !== nothing
                     root_uuid = UUID(m.captures[1])
                 end
             elseif state == :deps
-                if (m = match(re_key_to_string, line)) != nothing
+                if (m = match(re_key_to_string, line)) !== nothing
                     m.captures[1] == name && return UUID(m.captures[2])
                 end
             end
@@ -487,9 +487,9 @@ function explicit_manifest_deps_get(manifest_file::String, where::UUID, name::St
                 uuid = deps = nothing
                 state = :stanza
             elseif state == :stanza
-                if (m = match(re_uuid_to_string, line)) != nothing
+                if (m = match(re_uuid_to_string, line)) !== nothing
                     uuid = UUID(m.captures[1])
-                elseif (m = match(re_deps_to_any, line)) != nothing
+                elseif (m = match(re_deps_to_any, line)) !== nothing
                     deps = String(m.captures[1])
                 elseif occursin(re_subsection_deps, line)
                     state = :deps
@@ -497,7 +497,7 @@ function explicit_manifest_deps_get(manifest_file::String, where::UUID, name::St
                     state = :other
                 end
             elseif state == :deps && uuid == where
-                if (m = match(re_key_to_string, line)) != nothing
+                if (m = match(re_key_to_string, line)) !== nothing
                     m.captures[1] == name && return UUID(m.captures[2])
                 end
             end
@@ -520,25 +520,25 @@ function explicit_manifest_uuid_path(manifest_file::String, pkg::PkgId)::Union{N
     open(manifest_file) do io
         uuid = name = path = hash = nothing
         for line in eachline(io)
-            if (m = match(re_section_capture, line)) != nothing
+            if (m = match(re_section_capture, line)) !== nothing
                 uuid == pkg.uuid && break
                 name = String(m.captures[1])
                 path = hash = nothing
-            elseif (m = match(re_uuid_to_string, line)) != nothing
+            elseif (m = match(re_uuid_to_string, line)) !== nothing
                 uuid = UUID(m.captures[1])
-            elseif (m = match(re_path_to_string, line)) != nothing
+            elseif (m = match(re_path_to_string, line)) !== nothing
                 path = String(m.captures[1])
-            elseif (m = match(re_hash_to_string, line)) != nothing
+            elseif (m = match(re_hash_to_string, line)) !== nothing
                 hash = SHA1(m.captures[1])
             end
         end
         uuid == pkg.uuid || return nothing
         name == pkg.name || return nothing # TODO: allow a mismatch?
-        if path != nothing
+        if path !== nothing
             path = normpath(abspath(dirname(manifest_file), path))
             return entry_path(path, name)
         end
-        hash == nothing && return nothing
+        hash === nothing && return nothing
         # Keep the 4 since it used to be the default
         for slug in (version_slug(uuid, hash, 4), version_slug(uuid, hash))
             for depot in DEPOT_PATH
@@ -557,7 +557,7 @@ end
 #  - `uuid` means: found `name` with project file with real or dummy `uuid`
 function implicit_project_deps_get(dir::String, name::String)::Union{Bool,UUID}
     path, project_file = entry_point_and_project_file(dir, name)
-    project_file == nothing && return path != nothing
+    project_file === nothing && return path !== nothing
     proj_name, proj_uuid = project_file_name_uuid_path(project_file, name)
     proj_name == name && proj_uuid
 end
