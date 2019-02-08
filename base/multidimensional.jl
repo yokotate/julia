@@ -95,6 +95,9 @@ module IteratorsMD
     # access to index tuple
     Tuple(index::CartesianIndex) = index.I
 
+    # equality
+    Base.:(==)(a::CartesianIndex{N}, b::CartesianIndex{N}) where N = a.I == b.I
+
     # zeros and ones
     zero(::CartesianIndex{N}) where {N} = zero(CartesianIndex{N})
     zero(::Type{CartesianIndex{N}}) where {N} = CartesianIndex(ntuple(x -> 0, Val(N)))
@@ -142,11 +145,13 @@ module IteratorsMD
     # nextind and prevind with CartesianIndex
     function Base.nextind(a::AbstractArray{<:Any,N}, i::CartesianIndex{N}) where {N}
         iter = CartesianIndices(axes(a))
-        return CartesianIndex(inc(i.I, first(iter).I, last(iter).I))
+        _, I = inc((), i.I, first(iter).I, last(iter).I)
+        return I
     end
     function Base.prevind(a::AbstractArray{<:Any,N}, i::CartesianIndex{N}) where {N}
         iter = CartesianIndices(axes(a))
-        return CartesianIndex(dec(i.I, last(iter).I, first(iter).I))
+        _, I = dec((), i.I, first(iter).I, last(iter).I)
+        return I
     end
 
     # Iteration over the elements of CartesianIndex cannot be supported until its length can be inferred,
@@ -334,20 +339,26 @@ module IteratorsMD
         iterfirst, iterfirst
     end
     @inline function iterate(iter::CartesianIndices, state)
-        nextstate = CartesianIndex(inc(state.I, first(iter).I, last(iter).I))
-        nextstate.I[end] > last(iter.indices[end]) && return nothing
-        nextstate, nextstate
+        return inc((), state.I, first(iter).I, last(iter).I)
     end
 
     # increment & carry
-    @inline inc(::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
-    @inline inc(state::Tuple{Int}, start::Tuple{Int}, stop::Tuple{Int}) = (state[1]+1,)
-    @inline function inc(state, start, stop)
+    # increment post check to avoid integer overflow
+    @inline inc(out, ::Tuple{}, ::Tuple{}, ::Tuple{}) = nothing
+    @inline function inc(out, state::Tuple{Int}, start::Tuple{Int}, stop::Tuple{Int})
         if state[1] < stop[1]
-            return (state[1]+1,tail(state)...)
+            nextstate = CartesianIndex(out..., state[1]+1)
+            return nextstate, nextstate
         end
-        newtail = inc(tail(state), tail(start), tail(stop))
-        (start[1], newtail...)
+        return nothing
+    end
+
+    @inline function inc(out, state, start, stop)
+        if state[1] < stop[1]
+            nextstate = CartesianIndex(out..., state[1]+1, tail(state)...)
+            return nextstate, nextstate
+        end
+        return inc((out..., start[1]), tail(state), tail(start), tail(stop))
     end
 
     # 0-d cartesian ranges are special-cased to iterate once and only once
@@ -414,21 +425,31 @@ module IteratorsMD
         iterfirst, iterfirst
     end
     @inline function iterate(r::Reverse{<:CartesianIndices}, state)
-        nextstate = CartesianIndex(dec(state.I, last(r.itr).I, first(r.itr).I))
-        nextstate.I[end] < first(r.itr.indices[end]) && return nothing
+        valid, I = dec(state.I, last(r.itr).I, first(r.itr).I)
+        valid || return nothing
+        nextstate = CartesianIndex(I)
         nextstate, nextstate
     end
 
     # decrement & carry
-    @inline dec(::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
-    @inline dec(state::Tuple{Int}, start::Tuple{Int}, stop::Tuple{Int}) = (state[1]-1,)
-    @inline function dec(state, start, stop)
+    # increment post check to avoid integer overflow
+    @inline dec(out, ::Tuple{}, ::Tuple{}, ::Tuple{}) = nothing
+    @inline function dec(out, state::Tuple{Int}, start::Tuple{Int}, stop::Tuple{Int})
         if state[1] > stop[1]
-            return (state[1]-1,tail(state)...)
+            nextstate = CartesianIndex(out..., state[1]-1)
+            return nextstate, nextstate
         end
-        newtail = dec(tail(state), tail(start), tail(stop))
-        (start[1], newtail...)
+        return nothing
     end
+
+    @inline function dec(out, state, start, stop)
+        if state[1] > stop[1]
+            nextstate = CartesianIndex(out..., state[1]-1, tail(state)...)
+            return nextstate, nextstate
+        end
+        return dec((out..., start[1]), tail(state), tail(start), tail(stop))
+    end
+
     # 0-d cartesian ranges are special-cased to iterate once and only once
     iterate(iter::Reverse{<:CartesianIndices{0}}, state=false) = state ? nothing : (CartesianIndex(), true)
 
