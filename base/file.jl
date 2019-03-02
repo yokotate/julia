@@ -525,7 +525,8 @@ constructed from the given prefix and a random suffix, and return its path.
 If `parent` does not exist, throw an error.
 """
 function mktempdir(parent=tempdir(); prefix=temp_prefix)
-    if ismatch(path_separator_re, parent[end:end]) # append a path_separator only if parent didn't already have one
+    if isempty(parent) || occursin(path_separator_re, parent[end:end])
+        # append a path_separator only if parent didn't already have one
         tpath = "$(parent)$(prefix)XXXXXX"
     else
         tpath = "$(parent)$(path_separator)$(prefix)XXXXXX"

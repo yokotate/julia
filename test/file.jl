@@ -1071,76 +1071,47 @@ end
 @test_throws ArgumentError mkpath("fakepath", mode = -1)
 
 @testset "mktempdir 'prefix' argument" begin
+    tmpdirbase = joinpath(tempdir(), "")
     def_prefix = "jl_"
-    tst_prefix = "ABCDEF"
     mktempdir() do tmpdir
-        filename = basename(tmpdir)
-        @test startswith(filename, def_prefix)
-    end
-    mktempdir(; prefix=tst_prefix) do tmpdir
-        filename = basename(tmpdir)
-        @test startswith(filename, tst_prefix)
+        @test isdir(tmpdir)
+        @test startswith(tmpdir, tmpdirbase * def_prefix)
+        @test sizeof(tmpdir) == sizeof(tmpdirbase) + sizeof(def_prefix) + 6
+        @test sizeof(basename(tmpdir)) == sizeof(def_prefix) + 6
+        cd(tmpdir) do
+            Sys.iswindows() || mkdir(".\\")
+            for relpath in (".", "./", ".\\", "")
+                mktempdir(relpath) do tmpdir2
+                    pfx = joinpath(relpath, def_prefix)
+                    @test sizeof(tmpdir2) == sizeof(pfx) + 6
+                    @test startswith(tmpdir2, pfx)
+                end
+            end
+        end
     end
     # Special character prefix tests
-    tst_prefix="#!@%^&()"
-    mktempdir(; prefix=tst_prefix) do tmpdir
-        filename = basename(tmpdir)
-        @test startswith(filename, tst_prefix)
+    for tst_prefix in ("ABCDEF", "./pfx", ".\\pfx", "", "#!@%^&()X", "/", "\\", "////abc", "\\\\\\\\abc", "∃x∀y")
+        mktempdir(; prefix=tst_prefix) do tmpdir
+            @test isdir(tmpdir)
+            @test startswith(tmpdir, tmpdirbase * tst_prefix)
+            @test sizeof(basename(tmpdir)) == 6 + sizeof(basename(tst_prefix))
+        end
     end
+
+    @test_throws Base.IOError mktempdir(; prefix="dir_notexisting/bar")
+    @test_throws Base.IOError mktempdir(; prefix="dir_notexisting/")
+    @test_throws Base.IOError mktempdir("dir_notexisting/")
 
     # Behavioral differences across OS types
     if Sys.iswindows()
-        @test_throws Base.UVError mktempdir(; prefix="*")
-        @test_throws Base.UVError mktempdir(; prefix="cdcdccd/")
-
-        # The API accepts "c:/ and c:\\" as valid prefixes.
-        # The parent directory is ignored in that case.
-        # The temp directory created is of form "C:\\XXXXXX"
-        mktempdir("C:\\dir_notexisting"; prefix=tempdir()) do tmpdir
-            @test startswith(tmpdir, tempdir())
-            @test isdir(tmpdir)
-            filename = basename(tmpdir)
-            @test length(filename) == 6
-        end
-
-        # Although, underlying directory created is of type c:\\xxx\\yyy\\..., the returned
-        # directory name by the API is in the format as specified in the prefix
-        # parameter.
-        mktempdir("C:/dir_notexisting"; prefix=replace(tempdir(), '\\', '/')) do tmpdir
-            @test startswith(tmpdir, replace(tempdir(), '\\', '/'))
-            @test !startswith(tmpdir, tempdir())
-            @test isdir(tmpdir)
-            filename = basename(tmpdir)
-            @test length(filename) == 6
-        end
-    else
-        # '/' is accepted in a prefix but depends on the overall path and permissions.
-        # A carefully crafted parent directory and prefix combination can actually
-        # create a directory as the example below.
-        # The file created will be of format "/tmp/XXXXXX"
-        mktempdir(; prefix="/") do tmpdir
-            @test startswith(tmpdir, "/tmp/")
-            filename = basename(tmpdir)
-            @test length(filename) == 6
-        end
-
-        mktempdir(; prefix="////abc") do tmpdir
-            @test startswith(tmpdir, "/tmp/")
-            filename = basename(tmpdir)
-            @test length(filename) == 9
-        end
-
-        mktempdir("/"; prefix="tmp/") do tmpdir
-            @test startswith(tmpdir, "/tmp/")
-            filename = basename(tmpdir)
-            @test length(filename) == 6
-        end
+        # invalid file name
+        @test_throws Base.IOError mktempdir(; prefix="a*b")
+        @test_throws Base.IOError mktempdir("a*b")
     end
 
-    # Unicode test
-    tst_prefix="∃x∀y"
-    mktempdir(; prefix=tst_prefix) do tmpdir
-        filename = basename(tmpdir)
-        @test startswith(filename, tst_prefix)
+    mktempdir(""; prefix=tmpdirbase) do tmpdir
+        @test startswith(tmpdir, tmpdirbase)
+        @test sizeof(tmpdir) == 6 + sizeof(tmpdirbase)
+        @test sizeof(basename(tmpdir)) == 6
     end
 end
