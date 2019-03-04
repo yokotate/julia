@@ -1090,7 +1090,7 @@ end
         end
     end
     # Special character prefix tests
-    for tst_prefix in ("ABCDEF", "./pfx", ".\\pfx", "", "#!@%^&()X", "/", "\\", "////abc", "\\\\\\\\abc", "∃x∀y")
+    for tst_prefix in ("ABCDEF", "./pfx", ".\\pfx", "", "#!@%^&()-", "/", "\\", "////abc", "\\\\\\\\abc", "∃x∀y")
         mktempdir(; prefix=tst_prefix) do tmpdir
             @test isdir(tmpdir)
             @test startswith(tmpdir, tmpdirbase * tst_prefix)
