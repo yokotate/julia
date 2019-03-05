@@ -887,7 +887,10 @@ SECT_INTERP CALLBACK_ABI void *jl_interpret_yakc_callback(interpreter_state *s, 
     s->preevaluation = 0;
     s->continue_at = 0;
     s->mi = NULL;
-    assert(args->args == jl_emptytuple);
+    size_t nargs = jl_nparams(jl_tparam0(jl_typeof(args->yakc)));
+    assert(nargs == jl_nfields(args->args));
+    for (int i = 0; i < nargs; ++i)
+        locals[3 + i] = jl_get_nth_field(args->args, i);
     jl_value_t *r = eval_body(stmts, s, 0, 0);
     JL_GC_POP();
     return (void*)r;

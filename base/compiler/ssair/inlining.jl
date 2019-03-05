@@ -12,6 +12,7 @@ struct InliningTodo
     # need to be rewritten.
     isva::Bool
     isinvoke::Bool
+    is_yakc::Bool
     na::Int
     method::Union{Method, Nothing}  # The method being inlined
     sparams::Vector{Any} # The static parameters we computed for this call site
@@ -517,6 +518,12 @@ function batch_inline!(todo::Vector{Any}, ir::IRCode, linetable::Vector{LineInfo
         for (idx, stmt) in compact
             if compact.idx - 1 == inline_idx
                 argexprs = copy(stmt.args)
+                if isa(item, InliningTodo) && item.is_yakc
+                    # For yakc, the `self` argument is the object passed as
+                    # the environment
+                    @assert isa(argexprs[1], SSAValue)
+                    argexprs[1] = compact[argexprs[1]].args[2]
+                end
                 refinish = false
                 if compact.result_idx == first(compact.result_bbs[compact.active_result_bb].stmts)
                     compact.active_result_bb -= 1
@@ -722,7 +729,7 @@ function analyze_method!(idx::Int, @nospecialize(f), @nospecialize(ft), @nospeci
 
     return InliningTodo(idx,
         na > 0 && method.isva,
-        isinvoke, na,
+        isinvoke, false, na,
         method, Any[methsp...], metharg,
         inline_linetable, ir2, linear_inline_eligible(ir2))
 end
@@ -943,7 +950,7 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
             callee = stmt.args[1]
             if isa(callee, SSAValue) && isexpr(ir.stmts[callee.id], :new_yakc) && length(ir.stmts[callee.id].args) == 4
                 ir′ = ir.yakcs[ir.stmts[callee.id].args[4]::Int]::IRCode
-                push!(todo, InliningTodo(idx, false, false, 0, nothing, Any[], nothing,
+                push!(todo, InliningTodo(idx, false, false, true, 0, nothing, Any[], nothing,
                     ir′.linetable, ir′, linear_inline_eligible(ir′)))
                 continue
             end
