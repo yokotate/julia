@@ -862,10 +862,48 @@ SECT_INTERP jl_value_t *jl_fptr_interpret_call(jl_method_instance_t *lam, jl_val
     return (jl_value_t*)enter_interpreter_frame(jl_interpret_call_callback, (void *)&callback_args);
 }
 
+struct jl_interpret_yakc_args {
+    jl_yakc_t *yakc;
+    jl_value_t *args;
+};
+
+SECT_INTERP CALLBACK_ABI void *jl_interpret_yakc_callback(interpreter_state *s, void *vargs)
+{
+    struct jl_interpret_yakc_args *args =
+        (struct jl_interpret_yakc_args *)vargs;
+    JL_GC_PROMISE_ROOTED(args);
+    jl_code_info_t *src = args->yakc->code;
+    jl_array_t *stmts = src->code;
+    assert(jl_typeis(stmts, jl_array_any_type));
+    jl_value_t **locals;
+    JL_GC_PUSHARGS(locals, jl_source_nslots(src) + jl_source_nssavalues(src) + 2);
+    locals[0] = (jl_value_t*)args->yakc;
+    locals[1] = (jl_value_t*)stmts;
+    locals[2] = (jl_value_t*)args->yakc->env;
+    s->src = src;
+    s->module = NULL;
+    s->locals = locals + 2;
+    s->sparam_vals = NULL;
+    s->preevaluation = 0;
+    s->continue_at = 0;
+    s->mi = NULL;
+    assert(args->args == jl_emptytuple);
+    jl_value_t *r = eval_body(stmts, s, 0, 0);
+    JL_GC_POP();
+    return (void*)r;
+}
+
+SECT_INTERP jl_value_t *jl_interpret_yakc(jl_yakc_t *yakc, jl_value_t *args)
+{
+    struct jl_interpret_yakc_args callback_args = { yakc, args };
+    return (jl_value_t*)enter_interpreter_frame(jl_interpret_yakc_callback, (void *)&callback_args);
+}
+
 struct jl_interpret_toplevel_thunk_args {
     jl_module_t *m;
     jl_code_info_t *src;
 };
+
 SECT_INTERP CALLBACK_ABI void *jl_interpret_toplevel_thunk_callback(interpreter_state *s, void *vargs) {
     struct jl_interpret_toplevel_thunk_args *args =
         (struct jl_interpret_toplevel_thunk_args*)vargs;

@@ -4,8 +4,8 @@ const LineNum = Int
 
 mutable struct InferenceState
     params::Params # describes how to compute the result
-    result::InferenceResult # remember where to put the result
-    linfo::MethodInstance   # used here for the tuple (specTypes, env, Method) and world-age validity
+    result::Union{InferenceResult, Nothing} # remember where to put the result
+    linfo::Union{MethodInstance, Nothing}   # used here for the tuple (specTypes, env, Method) and world-age validity
     sptypes::Vector{Any}    # types of static parameter
     slottypes::Vector{Any}
     mod::Module
@@ -35,20 +35,36 @@ mutable struct InferenceState
     callers_in_cycle::Vector{InferenceState}
     parent::Union{Nothing, InferenceState}
 
+    has_yakcs::Bool
+
     # TODO: move these to InferenceResult / Params?
     cached::Bool
     limited::Bool
     inferred::Bool
     dont_work_on_me::Bool
-
+    
     # src is assumed to be a newly-allocated CodeInfo, that can be modified in-place to contain intermediate results
-    function InferenceState(result::InferenceResult, src::CodeInfo,
-                            cached::Bool, params::Params)
-        linfo = result.linfo
-        code = src.code::Array{Any,1}
-        toplevel = !isa(linfo.def, Method)
+    function InferenceState(result::Union{InferenceResult, Nothing}, src::CodeInfo,
+                            cached::Bool, params::Params, argtypes::Vector{Any} = result.argtypes)
+        if result !== nothing
+            linfo = result.linfo
+            toplevel = !isa(linfo.def, Method)
 
-        sp = sptypes_from_meth_instance(linfo::MethodInstance)
+            sp = sptypes_from_meth_instance(linfo::MethodInstance)
+
+            if !toplevel
+                meth = linfo.def
+                inmodule = meth.module
+            else
+                inmodule = linfo.def::Module
+            end
+        else
+            linfo = nothing
+            toplevel = true
+            inmodule = Core
+            sp = Any[]
+        end
+        code = src.code::Array{Any,1}
 
         nssavalues = src.ssavaluetypes::Int
         src.ssavaluetypes = Any[ NOT_FOUND for i = 1:nssavalues ]
@@ -59,7 +75,6 @@ mutable struct InferenceState
 
         # initial types
         nslots = length(src.slotflags)
-        argtypes = result.argtypes
         nargs = length(argtypes)
         s_argtypes = VarTable(undef, nslots)
         slottypes = Vector{Any}(undef, nslots)
@@ -80,13 +95,6 @@ mutable struct InferenceState
         W = BitSet()
         push!(W, 1) #initial pc to visit
 
-        if !toplevel
-            meth = linfo.def
-            inmodule = meth.module
-        else
-            inmodule = linfo.def::Module
-        end
-
         if cached && !toplevel
             min_valid = min_world(linfo.def)
             max_valid = max_world(linfo.def)
@@ -104,10 +112,12 @@ mutable struct InferenceState
             ssavalue_uses,
             Vector{Tuple{InferenceState,LineNum}}(), # cycle_backedges
             Vector{InferenceState}(), # callers_in_cycle
-            #=parent=#nothing,
+            #=parent=#nothing, false,
             cached, false, false, false)
-        result.result = frame
-        cached && push!(params.cache, result)
+        if result !== nothing
+            result.result = frame
+            cached && push!(params.cache, result)
+        end
         return frame
     end
 end
@@ -194,7 +204,7 @@ _topmod(sv::InferenceState) = _topmod(sv.mod)
 function update_valid_age!(min_valid::UInt, max_valid::UInt, sv::InferenceState)
     sv.min_valid = max(sv.min_valid, min_valid)
     sv.max_valid = min(sv.max_valid, max_valid)
-    @assert(!isa(sv.linfo.def, Method) ||
+    @assert(sv.linfo === nothing || !isa(sv.linfo.def, Method) ||
             !sv.cached ||
             sv.min_valid <= sv.params.world <= sv.max_valid,
             "invalid age range update")
@@ -231,6 +241,7 @@ end
 
 # temporarily accumulate our edges to later add as backedges in the callee
 function add_backedge!(li::MethodInstance, caller::InferenceState)
+    caller.linfo !== nothing || return # don't add backends to yakcs
     isa(caller.linfo.def, Method) || return # don't add backedges to toplevel exprs
     if caller.stmt_edges[caller.currpc] === nothing
         caller.stmt_edges[caller.currpc] = []

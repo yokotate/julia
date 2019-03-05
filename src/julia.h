@@ -265,6 +265,15 @@ typedef struct _jl_code_info_t {
     uint8_t pure;
 } jl_code_info_t;
 
+// YACK - Yet another kind of closure.
+// N.B.: The datatype for this is defined in boot.jl. Make sure to synchronize
+// any changes.
+typedef struct jl_yakc_t {
+    JL_DATA_TYPE
+    jl_value_t *env;
+    jl_code_info_t *code;
+} jl_yakc_t;
+
 // This type describes a single method definition, and stores data
 // shared by the specializations of a function.
 typedef struct _jl_method_t {

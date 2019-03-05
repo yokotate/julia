@@ -218,19 +218,23 @@ struct IRCode
     cfg::CFG
     new_nodes::Vector{NewNode}
     meta::Vector{Any}
+    # For easier reference, we store all yakcs. In general passes will want to
+    # just recurse into these. Passes that are yakc aware may do more fancy
+    # optimizations
+    yakcs::Vector{IRCode}
 
     function IRCode(stmts::Vector{Any}, types::Vector{Any}, lines::Vector{Int32}, flags::Vector{UInt8},
             cfg::CFG, linetable::Vector{LineInfoNode}, argtypes::Vector{Any}, meta::Vector{Any},
-            sptypes::Vector{Any})
-        return new(stmts, types, lines, flags, argtypes, sptypes, linetable, cfg, NewNode[], meta)
+            sptypes::Vector{Any}, yakcs::Vector{IRCode})
+        return new(stmts, types, lines, flags, argtypes, sptypes, linetable, cfg, NewNode[], meta, yakcs)
     end
     function IRCode(ir::IRCode, stmts::Vector{Any}, types::Vector{Any}, lines::Vector{Int32}, flags::Vector{UInt8},
             cfg::CFG, new_nodes::Vector{NewNode})
-        return new(stmts, types, lines, flags, ir.argtypes, ir.sptypes, ir.linetable, cfg, new_nodes, ir.meta)
+        return new(stmts, types, lines, flags, ir.argtypes, ir.sptypes, ir.linetable, cfg, new_nodes, ir.meta, ir.yakcs)
     end
 end
 copy(code::IRCode) = IRCode(code, copy(code.stmts), copy(code.types),
-    copy(code.lines), copy(code.flags), copy(code.cfg), copy(code.new_nodes))
+    copy(code.lines), copy(code.flags), copy(code.cfg), copy(code.new_nodes), copy(code.yakcs))
 
 function getindex(x::IRCode, s::SSAValue)
     if s.id <= length(x.stmts)
@@ -325,7 +329,7 @@ function getindex(x::UseRef)
 end
 
 function is_relevant_expr(e::Expr)
-    return e.head in (:call, :invoke, :new, :splatnew, :(=), :(&),
+    return e.head in (:call, :invoke, :new, :new_yakc, :splatnew, :(=), :(&),
                       :gc_preserve_begin, :gc_preserve_end,
                       :foreigncall, :isdefined, :copyast,
                       :undefcheck, :throw_undef_if_not,

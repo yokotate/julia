@@ -740,4 +740,14 @@ Unsigned(x::Union{Float32, Float64, Bool}) = UInt(x)
 Integer(x::Integer) = x
 Integer(x::Union{Float32, Float64}) = Int(x)
 
+struct YAKC{A <: Tuple, R}
+    env::Any
+    ci::CodeInfo
+end
+
+function (y::YAKC{A, R})(args...) where {A,R}
+    typeassert(args, A)
+    ccall(:jl_invoke_yakc, Any, (Any, Any), y, args)::R
+end
+
 ccall(:jl_set_istopmod, Cvoid, (Any, Bool), Core, true)

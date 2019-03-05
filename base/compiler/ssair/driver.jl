@@ -49,22 +49,40 @@ function normalize(@nospecialize(stmt), meta::Vector{Any})
     return stmt
 end
 
-function just_construct_ssa(ci::CodeInfo, code::Vector{Any}, nargs::Int, sv::OptimizationState)
+function just_construct_ssa(ci::CodeInfo, code::Vector{Any}, nargs::Int, sv::OptimizationState, strip::Bool=true)
     # Go through and add an unreachable node after every
     # Union{} call. Then reindex labels.
     idx = 1
     oldidx = 1
     changemap = fill(0, length(code))
+    yakcs = IRCode[]
     while idx <= length(code)
-        if code[idx] isa Expr && ci.ssavaluetypes[idx] === Union{}
-            if !(idx < length(code) && isexpr(code[idx+1], :unreachable))
-                insert!(code, idx + 1, ReturnNode())
-                insert!(ci.codelocs, idx + 1, ci.codelocs[idx])
-                insert!(ci.ssavaluetypes, idx + 1, Union{})
-                if oldidx < length(changemap)
-                    changemap[oldidx + 1] = 1
+        if code[idx] isa Expr
+            stmt = code[idx]
+            if code[idx].head === :(=)
+                stmt = stmt.args[2]                
+            end
+            if isexpr(stmt, :new)
+                # Pre-convert any YAKC objects
+                if length(stmt.args) == 3 && isa(stmt.args[3], CodeInfo) &&
+                        widenconst(argextype(stmt.args[1], ci, sv.sptypes)) <: Type{<:Core.YAKC}
+                    yakc_ir = just_construct_ssa(stmt.args[3], copy_exprargs(stmt.args[3].code),
+                            0, sv, false)
+                    push!(yakcs, yakc_ir)
+                    stmt.head = :new_yakc
+                    push!(stmt.args, length(yakcs))
                 end
-                idx += 1
+            end
+            if ci.ssavaluetypes[idx] === Union{}
+                if !(idx < length(code) && isexpr(code[idx+1], :unreachable))
+                    insert!(code, idx + 1, ReturnNode())
+                    insert!(ci.codelocs, idx + 1, ci.codelocs[idx])
+                    insert!(ci.ssavaluetypes, idx + 1, Union{})
+                    if oldidx < length(changemap)
+                        changemap[oldidx + 1] = 1
+                    end
+                    idx += 1
+                end
             end
         end
         idx += 1
@@ -97,12 +115,12 @@ function just_construct_ssa(ci::CodeInfo, code::Vector{Any}, nargs::Int, sv::Opt
             end
         end
     end
-    strip_trailing_junk!(ci, code, flags)
+    strip && strip_trailing_junk!(ci, code, flags)
     cfg = compute_basic_blocks(code)
     defuse_insts = scan_slot_def_use(nargs, ci, code)
     @timeit "domtree 1" domtree = construct_domtree(cfg)
     ir = let code = Any[nothing for _ = 1:length(code)]
-            IRCode(code, Any[], ci.codelocs, flags, cfg, collect(LineInfoNode, ci.linetable), sv.slottypes, meta, sv.sptypes)
+            IRCode(code, Any[], ci.codelocs, flags, cfg, collect(LineInfoNode, ci.linetable), sv.slottypes, meta, sv.sptypes, yakcs)
         end
     @timeit "construct_ssa" ir = construct_ssa!(ci, code, ir, domtree, defuse_insts, nargs, sv.sptypes, sv.slottypes)
     return ir

@@ -13,7 +13,7 @@ struct InliningTodo
     isva::Bool
     isinvoke::Bool
     na::Int
-    method::Method  # The method being inlined
+    method::Union{Method, Nothing}  # The method being inlined
     sparams::Vector{Any} # The static parameters we computed for this call site
     metharg # ::Type
     # The LineTable and IR of the inlinee
@@ -54,6 +54,9 @@ struct UnionSplit
 end
 
 function ssa_inlining_pass!(ir::IRCode, linetable::Vector{LineInfoNode}, sv::OptimizationState)
+    for (idx, ir′) in enumerate(ir.yakcs)
+        ir.yakcs[idx] = ssa_inlining_pass!(ir′, ir′.linetable, sv)
+    end
     # Go through the function, performing simple ininlingin (e.g. replacing call by constants
     # and analyzing legality of inlining).
     @timeit "analysis" todo = assemble_inline_todo!(ir, sv)
@@ -316,7 +319,8 @@ function ir_inline_item!(compact::IncrementalCompact, idx::Int, argexprs::Vector
             # face of rename_arguments! mutating in place - should figure out
             # something better eventually.
             inline_compact[idx′] = nothing
-            stmt′ = ssa_substitute!(idx′, stmt′, argexprs, item.method.sig, item.sparams, linetable_offset, boundscheck_idx, compact)
+            stmt′ = ssa_substitute!(idx′, stmt′, argexprs, item.method === nothing ? nothing :
+                item.method.sig, item.sparams, linetable_offset, boundscheck_idx, compact)
             if isa(stmt′, ReturnNode)
                 isa(stmt′.val, SSAValue) && (compact.used_ssas[stmt′.val.id] += 1)
                 return_value = SSAValue(idx′)
@@ -788,11 +792,9 @@ function handle_single_case!(ir::IRCode, stmt::Expr, idx::Int, @nospecialize(cas
 end
 
 function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
-    # todo = (inline_idx, (isva, isinvoke, na), method, spvals, inline_linetable, inline_ir, lie)
     todo = Any[]
     for idx in 1:length(ir.stmts)
         stmt = ir.stmts[idx]
-
         if isexpr(stmt, :splatnew)
             ty = ir.types[idx]
             nf = nfields_tfunc(ty)
@@ -933,6 +935,18 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
                                      calltype)
             handle_single_case!(ir, stmt, idx, result, isinvoke, todo, sv)
             continue
+        end
+
+        # Special case: Calling a yakc whose definition we can see
+        #@show ft
+        if ft ⊑ Core.YAKC
+            callee = stmt.args[1]
+            if isa(callee, SSAValue) && isexpr(ir.stmts[callee.id], :new_yakc) && length(ir.stmts[callee.id].args) == 4
+                ir′ = ir.yakcs[ir.stmts[callee.id].args[4]::Int]::IRCode
+                push!(todo, InliningTodo(idx, false, false, 0, nothing, Any[], nothing,
+                    ir′.linetable, ir′, linear_inline_eligible(ir′)))
+                continue
+            end
         end
 
         # Regular case: Perform method matching

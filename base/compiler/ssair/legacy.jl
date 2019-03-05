@@ -44,7 +44,7 @@ function inflate_ir(ci::CodeInfo, sptypes::Vector{Any}, argtypes::Vector{Any})
     end
     ssavaluetypes = ci.ssavaluetypes isa Vector{Any} ? copy(ci.ssavaluetypes) : Any[ Any for i = 1:(ci.ssavaluetypes::Int) ]
     ir = IRCode(code, ssavaluetypes, copy(ci.codelocs), copy(ci.ssaflags), cfg, collect(LineInfoNode, ci.linetable),
-                argtypes, Any[], sptypes)
+                argtypes, Any[], sptypes, IRCode[])
     return ir
 end
 
@@ -83,6 +83,10 @@ function replace_code_newstyle!(ci::CodeInfo, ir::IRCode, nargs::Int)
             end
         elseif isa(stmt, Expr) && stmt.head == :enter
             stmt.args[1] = first(ir.cfg.blocks[stmt.args[1]].stmts)
+            ci.code[i] = stmt
+        elseif isa(stmt, Expr) && stmt.head == :new_yakc
+            pop!(stmt.args)
+            stmt.head = :new
             ci.code[i] = stmt
         else
             ci.code[i] = stmt

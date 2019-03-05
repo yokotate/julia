@@ -145,6 +145,28 @@ function cache_result(result::InferenceResult, min_valid::UInt, max_valid::UInt)
     nothing
 end
 
+function typeinf_yakcs!(me::InferenceState)
+    me.has_yakcs || return
+    code = me.src.code
+    for idx in 1:length(code)
+        stmt = code[idx]
+        isexpr(stmt, :(=)) && (stmt = stmt.args[2])
+        if isexpr(stmt, :new) && length(stmt.args) == 3 && isa(stmt.args[3], CodeInfo)
+            t = instanceof_tfunc(argextype(stmt.args[1], me.src, me.sptypes))[1]
+            t <: Core.YAKC || continue
+            
+            !isa((stmt.args[3]::CodeInfo).ssavaluetypes, Int) && continue
+
+            # No InferenceResult, since we don't actually use the return type
+            argtypes = Any[argextype(stmt.args[2], me.src, me.sptypes), t.parameters[1].parameters...]
+            state = InferenceState(nothing, copy(stmt.args[3]), false, me.params, argtypes)
+            typeinf_local(state)
+            finish(state)
+            stmt.args[3] = state.src
+        end
+    end
+end
+
 function finish(me::InferenceState)
     # prepare to run optimization passes on fulltree
     if me.limited && me.cached && me.parent !== nothing
@@ -156,6 +178,8 @@ function finish(me::InferenceState)
     else
         # annotate fulltree with type information
         type_annotate!(me)
+        # If we found any yakcs, run them now
+        typeinf_yakcs!(me)
         run_optimizer = (me.cached || me.parent !== nothing)
         if run_optimizer
             # construct the optimizer for later use, if we're building this IR to cache it
@@ -164,7 +188,9 @@ function finish(me::InferenceState)
             me.result.src = opt
         end
     end
-    me.result.result = me.bestguess
+    if me.result !== nothing
+        me.result.result = me.bestguess
+    end
     nothing
 end
 

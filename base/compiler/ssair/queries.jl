@@ -32,7 +32,7 @@ function stmt_effect_free(@nospecialize(stmt), @nospecialize(rt), src, sptypes::
             contains_is(_PURE_OR_ERROR_BUILTINS, f) || return false
             rt === Bottom && return false
             return _builtin_nothrow(f, Any[argextype(ea[i], src, sptypes) for i = 2:length(ea)], rt)
-        elseif head === :new
+        elseif head === :new || head === :new_yakc
             a = ea[1]
             typ = argextype(a, src, sptypes)
             # `Expr(:new)` of unknown type could raise arbitrary TypeError.
@@ -40,8 +40,9 @@ function stmt_effect_free(@nospecialize(stmt), @nospecialize(rt), src, sptypes::
             isexact || return false
             isconcretedispatch(typ) || return false
             typ = typ::DataType
-            fieldcount(typ) >= length(ea) - 1 || return false
-            for fld_idx in 1:(length(ea) - 1)
+            nargs = length(ea) - (head === :new ? 1 : 2)
+            fieldcount(typ) >= nargs || return false
+            for fld_idx in 1:nargs
                 eT = argextype(ea[fld_idx + 1], src, sptypes)
                 fT = fieldtype(typ, fld_idx)
                 eT ⊑ fT || return false

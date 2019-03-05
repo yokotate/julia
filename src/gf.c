@@ -2405,6 +2405,12 @@ JL_DLLEXPORT jl_value_t *jl_invoke(jl_method_instance_t *meth, jl_value_t **args
     }
 }
 
+JL_DLLEXPORT jl_value_t *jl_invoke_yakc(jl_yakc_t *yakc, jl_value_t *args)
+{
+    // TODO: Compiler support
+    return jl_interpret_yakc(yakc, args);
+}
+
 // Return value is rooted globally
 jl_function_t *jl_new_generic_function_with_supertype(jl_sym_t *name, jl_module_t *module, jl_datatype_t *st, int iskw)
 {

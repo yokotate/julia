@@ -62,7 +62,7 @@ function abstract_call_gf_by_type(@nospecialize(f), argtypes::Vector{Any}, @nosp
     edges = Any[]
     nonbot = 0  # the index of the only non-Bottom inference result if > 0
     seen = 0    # number of signatures actually inferred
-    istoplevel = sv.linfo.def isa Module
+    istoplevel = sv.linfo === nothing ? false : sv.linfo.def isa Module
     for i in 1:napplicable
         match = applicable[i]::SimpleVector
         method = match[3]::Method
@@ -242,7 +242,7 @@ function abstract_call_method(method::Method, @nospecialize(sig), sparams::Simpl
     sv_method2 isa Method || (sv_method2 = nothing) # Union{Method, Nothing}
     while !(infstate === nothing)
         infstate = infstate::InferenceState
-        if method === infstate.linfo.def
+        if infstate.linfo !== nothing && method === infstate.linfo.def
             if infstate.linfo.specTypes == sig
                 # avoid widening when detecting self-recursion
                 # TODO: merge call cycle and return right away
@@ -901,6 +901,10 @@ function abstract_eval(@nospecialize(e), vtypes::VarTable, sv::InferenceState)
         t = abstract_eval_call(e.args, argtypes, vtypes, sv)
     elseif e.head === :new
         t = instanceof_tfunc(abstract_eval(e.args[1], vtypes, sv))[1]
+        if t <: Core.YAKC
+            sv.has_yakcs = true
+            return t
+        end
         if isconcretetype(t) && !t.mutable
             args = Vector{Any}(undef, length(e.args)-1)
             ats = Vector{Any}(undef, length(e.args)-1)
