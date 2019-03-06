@@ -158,7 +158,11 @@ function typeinf_yakcs!(me::InferenceState)
             !isa((stmt.args[3]::CodeInfo).ssavaluetypes, Int) && continue
 
             # No InferenceResult, since we don't actually use the return type
-            argtypes = Any[argextype(stmt.args[2], me.src, me.sptypes), t.parameters[1].parameters...]
+            argtypes = Any[argextype(stmt.args[2], me.src, me.sptypes)]
+            dt = unwrap_unionall(t)
+            for p in dt.parameters[1].parameters
+                push!(argtypes, rewrap_unionall(p, t))
+            end
             state = InferenceState(nothing, copy(stmt.args[3]), false, me.params, argtypes)
             typeinf_local(state)
             finish(state)

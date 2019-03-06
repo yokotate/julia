@@ -85,7 +85,11 @@ function replace_code_newstyle!(ci::CodeInfo, ir::IRCode, nargs::Int)
             stmt.args[1] = first(ir.cfg.blocks[stmt.args[1]].stmts)
             ci.code[i] = stmt
         elseif isa(stmt, Expr) && stmt.head == :new_yakc
+            ci′ = copy(stmt.args[end-1])
+            ir′ = ir.yakcs[stmt.args[end]]
+            replace_code_newstyle!(ci′, ir′, length(ir′.argtypes)-1)
             pop!(stmt.args)
+            stmt.args[end] = ci′
             stmt.head = :new
             ci.code[i] = stmt
         else

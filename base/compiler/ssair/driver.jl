@@ -64,13 +64,16 @@ function just_construct_ssa(ci::CodeInfo, code::Vector{Any}, nargs::Int, sv::Opt
             end
             if isexpr(stmt, :new)
                 # Pre-convert any YAKC objects
-                if length(stmt.args) == 3 && isa(stmt.args[3], CodeInfo) &&
-                        widenconst(argextype(stmt.args[1], ci, sv.sptypes)) <: Type{<:Core.YAKC}
-                    yakc_ir = just_construct_ssa(stmt.args[3], copy_exprargs(stmt.args[3].code),
-                            0, sv, false)
-                    push!(yakcs, yakc_ir)
-                    stmt.head = :new_yakc
-                    push!(stmt.args, length(yakcs))
+                if length(stmt.args) == 3 && isa(stmt.args[3], CodeInfo)
+                    t = widenconst(argextype(stmt.args[1], ci, sv.sptypes))
+                    if t <: Type{<:Core.YAKC}
+                        yakc_nargs = length(unwrap_unionall(t).parameters[1].parameters[1].parameters)
+                        yakc_ir = just_construct_ssa(stmt.args[3], copy_exprargs(stmt.args[3].code),
+                                yakc_nargs, sv, false)
+                        push!(yakcs, yakc_ir)
+                        stmt.head = :new_yakc
+                        push!(stmt.args, length(yakcs))
+                    end
                 end
             end
             if ci.ssavaluetypes[idx] === Union{}
