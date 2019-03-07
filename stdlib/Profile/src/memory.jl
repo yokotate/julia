@@ -21,6 +21,25 @@ Julia, and examine the resulting `*.mem` files.
 clear_malloc_data() = ccall(:jl_clear_malloc_data, Cvoid, ())
 
 
+tag_lookup(d::Dict, s::Symbol) = d[s]
+tag_lookup(d::Dict, v::Vector{Symbol}) = reduce(|, [d[s] for s in v])
+tag_lookup(d::Dict, n::Number) = [t for (t, v) in d if (v & n == v) && (t != :all)]
+
+memory_domain_map = Dict(
+    :cpu => 0x01,
+    :gpu => 0x02,
+    :external => 0x04,
+
+    :all => 0x0f,
+)
+allocator_map = Dict(
+    :std => 0x10,
+    :pool => 0x20,
+    :big => 0x40,
+
+    :all => 0xf0,
+)
+
 """
     build_tag_filter(memory_domain = :all, allocator = :all)
 
@@ -33,23 +52,6 @@ You can build a union of multiple allocators and memory domains by passing in a
 vector of symbols, e.g. `build_tag_filter(:all, [:std, :pool])`.
 """
 function build_tag_filter(memory_domain = :all, allocator = :all)
-    tag_lookup(d::Dict, s::Symbol) = d[s]
-    tag_lookup(d::Dict, v::Vector{Symbol}) = reduce(|, [d[s] for s in v])
-
-    memory_domain_map = Dict(
-        :cpu => 0x01,
-        :gpu => 0x02,
-        :external => 0x04,
-
-        :all => 0x0f,
-    )
-    allocator_map = Dict(
-        :std => 0x10,
-        :pool => 0x20,
-        :big => 0x40,
-
-        :all => 0xf0,
-    )
     return tag_lookup(memory_domain_map, memory_domain) | tag_lookup(allocator_map, allocator)
 end
 
@@ -100,6 +102,21 @@ struct AllocationInfo
     free_stacktrace::Vector{StackFrame}
     allocsz::UInt64
     tag::UInt8
+end
+
+function get_type(a::AllocationInfo)
+    if (a.tag & Profile.Memory.allocator_map[:pool]) == 0
+        return nothing
+    end
+    return ccall(:jl_typeof, Any, (Ptr{Cvoid},), Ptr{Cvoid}(a.address))
+end
+
+
+function Base.show(io::IO, a::AllocationInfo)
+    md = join(tag_lookup(memory_domain_map, a.tag), ", ")
+    at = join(tag_lookup(allocator_map, a.tag), ", ")
+    T = get_type(a)
+    print(io, "AllocationInfo ($(a.allocsz) B, domain: ($(md)), allocator: ($(at)), type: $(T))")
 end
 
 """
@@ -169,6 +186,7 @@ get_memprofile_alloc_data_maxlen() = convert(Int, ccall(:jl_memprofile_maxlen_al
 
 get_memprofile_overflow() = ccall(:jl_memprofile_overflow, Cint, ())
 get_memprofile_tag_filter() = UInt8(ccall(:jl_memprofile_tag_filter, Cint, ()))
+
 """
     read_and_coalesce_memprofile_data()
 
