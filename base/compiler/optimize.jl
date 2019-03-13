@@ -272,7 +272,7 @@ intrinsic_effect_free_if_nothrow(f) = f === Intrinsics.pointerref || is_pure_int
 plus_saturate(x::Int, y::Int) = max(x, y, x+y)
 
 # known return type
-isknowntype(@nospecialize T) = (T == Union{}) || isconcretetype(T)
+isknowntype(@nospecialize T) = (T === Union{}) || isconcretetype(T)
 
 function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}, slottypes::Vector{Any}, params::Params)
     head = ex.head
@@ -306,7 +306,7 @@ function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}
                 # we might like to penalize non-inferrability, but
                 # tuple iteration/destructuring makes that impossible
                 # return plus_saturate(argcost, isknowntype(extyp) ? 1 : params.inline_nonleaf_penalty)
-                return 0
+                return 2
             elseif (f === Main.Core.arrayref || f === Main.Core.const_arrayref) && length(ex.args) >= 3
                 atyp = argextype(ex.args[3], src, sptypes, slottypes)
                 return isknowntype(atyp) ? 4 : params.inline_nonleaf_penalty
@@ -327,7 +327,7 @@ function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}
         # consideration. This way, non-inlined error branches do not
         # prevent inlining.
         extyp = line == -1 ? Any : src.ssavaluetypes[line]
-        return extyp === Union{} ? 0 : 20
+        return extyp === Union{} ? 1 : 20
     elseif head === :return
         a = ex.args[1]
         if a isa Expr
@@ -358,7 +358,7 @@ function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}
         # loops are generally always expensive
         # but assume that forward jumps are already counted for from
         # summing the cost of the not-taken branch
-        return target < line ? 40 : 0
+        return target < line ? 40 : 1
     end
     return 0
 end

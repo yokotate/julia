@@ -110,8 +110,8 @@ cst = map(cost, ci.code)
 # output
 
 5-element Array{Int64,1}:
-  0
-  0
+  2
+  2
  20
  20
   0
