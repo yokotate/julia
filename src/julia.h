@@ -276,7 +276,7 @@ typedef struct _jl_method_t {
     // method's type signature. redundant with TypeMapEntry->specTypes
     jl_value_t *sig;
 
-    // list of potentially-ambiguous methods (nothing = none, Vector{Any} of Methods otherwise)
+    // list of potentially-ambiguous methods (nothing = none, Vector{Any} of TypeMapEntry otherwise)
     jl_value_t *ambig;
 
     // table of all jl_method_instance_t specializations we have
@@ -316,8 +316,8 @@ typedef struct _jl_method_instance_t {
     } def; // pointer back to the context for this code
     jl_value_t *specTypes;  // argument types this was specialized for
     jl_svec_t *sparam_vals; // static parameter values, indexed by def.method->sparam_syms
-    jl_value_t *uninferred;
-    jl_array_t *backedges;
+    jl_value_t *uninferred; // cached uncompressed code, for generated functions, top-level thunks, or the interpreter
+    jl_array_t *backedges; // list of method-instances which contain a call into this method-instance
     struct _jl_code_instance_t *cache;
     uint8_t inInference; // flags to tell if inference is running on this object
 } jl_method_instance_t;
@@ -340,7 +340,6 @@ typedef struct _jl_code_instance_t {
     //TODO: uint8_t absolute_max; // whether true max world is unknown
 
     // compilation state cache
-    uint8_t isspecsig; // if specptr is specsig over arrow-type `specTypes -> rettype`
     jl_callptr_t invoke; // jlcall entry point
     jl_generic_specptr_t specptr; // private data for `jlcall entry point`
     // names of declarations in the JIT,

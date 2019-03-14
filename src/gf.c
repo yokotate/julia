@@ -295,7 +295,6 @@ JL_DLLEXPORT jl_code_instance_t *jl_set_method_inferred(
         assert(const_flags & 2);
         codeinst->invoke = jl_fptr_const_return;
     }
-    codeinst->isspecsig = 0;
     codeinst->specptr.fptr = NULL;
     if (jl_is_method(mi->def.method))
         JL_LOCK(&mi->def.method->writelock);
@@ -1757,7 +1756,6 @@ jl_code_instance_t *jl_compile_method_internal(jl_method_instance_t *mi, size_t 
             if (unspec && unspec->invoke != NULL) {
                 jl_code_instance_t *codeinst = jl_set_method_inferred(mi, (jl_value_t*)jl_any_type, NULL, NULL,
                     0, 1, ~(size_t)0);
-                codeinst->isspecsig = unspec->isspecsig;
                 codeinst->specptr = unspec->specptr;
                 codeinst->rettype_const = unspec->rettype_const;
                 codeinst->invoke = unspec->invoke;
@@ -1806,7 +1804,6 @@ jl_code_instance_t *jl_compile_method_internal(jl_method_instance_t *mi, size_t 
             }
             jl_code_instance_t *codeinst = jl_set_method_inferred(mi, (jl_value_t*)jl_any_type, NULL, NULL,
                 0, 1, ~(size_t)0);
-            codeinst->isspecsig = ucache->isspecsig;
             codeinst->specptr = ucache->specptr;
             codeinst->rettype_const = ucache->rettype_const;
             codeinst->invoke = ucache->invoke;

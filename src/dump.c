@@ -847,6 +847,7 @@ static void jl_serialize_value_(jl_serializer_state *s, jl_value_t *v, int as_li
                 backedges = NULL;
         }
         jl_serialize_value(s, (jl_value_t*)backedges);
+        jl_serialize_value(s, (jl_value_t*)mi->cache);
     }
     else if (jl_is_code_instance(v)) {
         write_uint8(s->s, TAG_CODE_INSTANCE);
@@ -1724,6 +1725,9 @@ static jl_value_t *jl_deserialize_value_method_instance(jl_serializer_state *s, 
     mi->backedges = (jl_array_t*)jl_deserialize_value(s, (jl_value_t**)&mi->backedges);
     if (mi->backedges)
         jl_gc_wb(mi, mi->backedges);
+    mi->cache = (jl_code_instance_t*)jl_deserialize_value(s, (jl_value_t**)&mi->cache);
+    if (mi->cache)
+        jl_gc_wb(mi, mi->cache);
     return (jl_value_t*)mi;
 }
 
@@ -2222,16 +2226,7 @@ static void jl_insert_backedges(jl_array_t *list, arraylist_t *dependent_worlds)
             jl_value_t *matches = jl_matching_methods((jl_tupletype_t*)sig, /*TODO?*/50, 1, jl_world_counter, &min_valid, &max_valid);
             if (matches == jl_false)
                 valid = 0;
-            size_t k;
-            // TODO: I'm almost certain this loop is identical to asking whether min_valid is an element of dependent_worlds
-            //       valid = (lowerbound_dependent_world_set(min_valid, dependent_worlds) == m->primary_world);
-            for (k = 0; valid && k < jl_array_len(matches); k++) {
-                jl_method_t *m = (jl_method_t*)jl_svecref(jl_array_ptr_ref(matches, k), 2);
-                if (lowerbound_dependent_world_set(m->primary_world, dependent_worlds) != m->primary_world) {
-                    // intersection has a new method and is now probably no good, just invalidate everything now
-                    valid = 0;
-                }
-            }
+            valid = (lowerbound_dependent_world_set(min_valid, dependent_worlds) == min_valid);
         }
         if (valid) {
             // if this callee is still valid, add all the backedges

@@ -65,6 +65,9 @@
 #mutable struct MethodInstance
 #end
 
+#mutable struct CodeInstance
+#end
+
 #mutable struct CodeInfo
 #end
 
