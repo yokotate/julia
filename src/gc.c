@@ -167,7 +167,7 @@ jl_gc_num_t gc_num = {0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 static size_t last_long_collect_interval;
 
 // Helper functions to keep track of allocation and free amounts
-void jl_gc_count_allocd(void * addr, size_t sz, uint8_t tag) JL_NOTSAFEPOINT
+void jl_gc_count_allocd(void * addr, size_t sz, uint16_t tag) JL_NOTSAFEPOINT
 {
 #ifdef JULIA_ENABLE_THREADING
     jl_atomic_fetch_add(&gc_num.allocd, sz);
@@ -180,7 +180,7 @@ void jl_gc_count_allocd(void * addr, size_t sz, uint8_t tag) JL_NOTSAFEPOINT
     }
 }
 
-void jl_gc_count_freed(void * addr, size_t sz, uint8_t tag) JL_NOTSAFEPOINT
+void jl_gc_count_freed(void * addr, size_t sz, uint16_t tag) JL_NOTSAFEPOINT
 {
 #ifdef JULIA_ENABLE_THREADING
     jl_atomic_fetch_add(&gc_num.freed, sz);
@@ -193,7 +193,7 @@ void jl_gc_count_freed(void * addr, size_t sz, uint8_t tag) JL_NOTSAFEPOINT
     }
 }
 
-void jl_gc_count_reallocd(void * oldaddr, size_t oldsz, void * newaddr, size_t newsz, uint8_t tag) JL_NOTSAFEPOINT
+void jl_gc_count_reallocd(void * oldaddr, size_t oldsz, void * newaddr, size_t newsz, uint16_t tag) JL_NOTSAFEPOINT
 {
 #ifdef JULIA_ENABLE_THREADING
     if (oldsz < newsz) {
@@ -1129,8 +1129,7 @@ static NOINLINE jl_taggedvalue_t *add_page(jl_gc_pool_t *p)
 }
 
 // Size includes the tag and the tag is not cleared!!
-JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, int pool_offset,
-                                          int osize)
+JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, int pool_offset, int osize)
 {
     // Use the pool offset instead of the pool address as the argument
     // to workaround a llvm bug.
@@ -1214,7 +1213,6 @@ static jl_taggedvalue_t **sweep_page(jl_gc_pool_t *p, jl_gc_pagemeta_t *pg, jl_t
     uint8_t *ages = pg->ages;
     jl_taggedvalue_t *v = (jl_taggedvalue_t*)(data + GC_PAGE_OFFSET);
     char *lim = (char*)v + GC_PAGE_SZ - GC_PAGE_OFFSET - osize;
-    size_t old_nfree = pg->nfree;
     size_t nfree;
 
     int freedall = 1;
@@ -1269,7 +1267,7 @@ static jl_taggedvalue_t **sweep_page(jl_gc_pool_t *p, jl_gc_pagemeta_t *pg, jl_t
                 pfl = &v->next;
                 pfl_begin = pfl_begin ? pfl_begin : pfl;
                 pg_nfree++;
-                jl_gc_count_freed(jl_valueof(v), osize, JL_MEMPROF_TAG_DOMAIN_CPU | JL_MEMPROF_TAG_ALLOC_POOLALLOC);
+
                 *ages &= ~msk;
             }
             else { // marked young or old
@@ -2717,6 +2715,61 @@ static void jl_gc_queue_bt_buf(jl_gc_mark_cache_t *gc_cache, jl_gc_mark_sp_t *sp
     }
 }
 
+static void gc_track_pool_frees()
+{
+    // Don't do anything if the memory profiler isn't running.
+    if (!jl_memprofile_running())
+        return;
+
+    // Iterate over the three levels of our pagetable.  We collapse indentation here
+    // to make it more readable, especially as we do essentially the same thing
+    // three times with just slightly changed variable names:
+    for (int pg2_i = 0; pg2_i < (REGION2_PG_COUNT + 31) / 32; pg2_i++) {
+        uint32_t line2 = memory_map.allocmap1[pg2_i];
+        if (line2) {
+            for (int j = 0; j < 32; j++) {
+                if ((line2 >> j) & 1) {
+                    pagetable1_t * pagetable1 = memory_map.meta1[pg2_i * 32 + j];
+
+    for (int pg1_i = 0; pg1_i < REGION1_PG_COUNT / 32; pg1_i++) {
+        uint32_t line1 = pagetable1->allocmap0[pg1_i];
+        if (line1) {
+            for (int k = 0; k < 32; k++) {
+                if ((line1 >> k) & 1) {
+                    pagetable0_t * pagetable0 = pagetable1->meta0[pg1_i * 32 + k];
+
+    for (int pg0_i = 0; pg0_i < REGION0_PG_COUNT / 32; pg0_i++) {
+        uint32_t line0 = pagetable0->allocmap[pg0_i];
+        if (line0) {
+            for (int l = 0; l < 32; l++) {
+                if ((line0 >> l) & 1) {
+                    jl_gc_pagemeta_t * pg = pagetable0->meta[pg0_i * 32 + l];
+
+                    // Once we have an actual page, iterate over the cells:
+                    jl_taggedvalue_t *v = (jl_taggedvalue_t*)(pg->data + GC_PAGE_OFFSET);
+                    char *lim = (char*)v + GC_PAGE_SZ - GC_PAGE_OFFSET - pg->osize;
+
+                    while ((char *)v <= lim) {
+                        // If this object is live but unmarked, then it's about to be freed,
+                        // so track that via jl_gc_count_freed().
+                        jl_value_t * ptr = jl_gc_internal_obj_base_ptr(v);
+                        if (ptr != NULL && jl_astaggedvalue(ptr)->bits.gc == GC_CLEAN ) {
+                            jl_gc_count_freed(ptr, pg->osize, JL_MEMPROF_TAG_DOMAIN_CPU |
+                                                              JL_MEMPROF_TAG_ALLOC_POOLALLOC);
+                        }
+
+                        // Move to next cell in the page
+                        v = (jl_taggedvalue_t*)((char*)v + pg->osize);
+                    }
+
+    // Region 0
+    }}}}
+    // Region 1
+    }}}}
+    // Region 2
+    }}}}
+}
+
 // Only one thread should be running in this function
 static int _jl_gc_collect(jl_ptls_t ptls, int full)
 {
@@ -2853,6 +2906,7 @@ static int _jl_gc_collect(jl_ptls_t ptls, int full)
     gc_sweep_other(ptls, sweep_full);
     gc_scrub();
     gc_verify_tags();
+    //gc_track_pool_frees();
     gc_sweep_pool(sweep_full);
     if (sweep_full)
         gc_sweep_perm_alloc();

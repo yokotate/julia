@@ -4,36 +4,8 @@
 #include <inttypes.h>
 #include "julia.h"
 #include "julia_internal.h"
-
-
-typedef struct _memprof_allocation_info_t
-{
-    // The location of the chunk of data in memory, used to match
-    // allocations with deallocations.
-    void *memory_location;
-
-    // The time at which this happened
-    double time;
-
-    // The size of the allocation, or 0 if this was a free of a
-    // previously-allocated piece of data.
-    size_t allocsz;
-
-    // Used to "tag" this allocation within a particular domain (currently only CPU, GPU, other)
-    uint8_t tag;
-} allocation_info_t;
-
-static uintptr_t * memprof_bt_data = NULL;
-static volatile size_t memprof_bt_data_size = 0;
-static volatile size_t memprof_bt_data_size_max = 0;
-
-static allocation_info_t * memprof_alloc_data = NULL;
-static volatile size_t memprof_alloc_data_size = 0;
-static volatile size_t memprof_alloc_data_size_max = 0;
-
-static volatile uint8_t memprof_running = 0;
-static volatile uint8_t memprof_overflow = 0;
-static volatile uint8_t memprof_tag_filter = 0xff;
+#include "threading.h"
+#include "gc.h"
 
 JL_DLLEXPORT void jl_memprofile_clear_data(void)
 {
@@ -42,7 +14,7 @@ JL_DLLEXPORT void jl_memprofile_clear_data(void)
     memprof_overflow = 0;
 }
 
-JL_DLLEXPORT int jl_memprofile_init(size_t bt_maxsize, size_t alloc_maxsize, uint8_t tag_filter)
+JL_DLLEXPORT int jl_memprofile_init(size_t bt_maxsize, size_t alloc_maxsize, uint16_t tag_filter)
 {
     // Free previous profile buffers, if we have any
     if (memprof_bt_data != NULL) {
@@ -75,7 +47,9 @@ JL_DLLEXPORT int jl_memprofile_init(size_t bt_maxsize, size_t alloc_maxsize, uin
 
     memprof_bt_data_size_max = bt_maxsize;
     memprof_alloc_data_size_max = alloc_maxsize;
-    memprof_tag_filter = tag_filter;
+
+    // We store the filter, but we always track deallocs.  :P
+    memprof_tag_filter = tag_filter | JL_MEMPROF_TAG_DEALLOC;
     jl_memprofile_clear_data();
     return 0;
 }
@@ -135,7 +109,38 @@ JL_DLLEXPORT void jl_memprofile_stop(void)
     memprof_running = 0;
 }
 
-JL_DLLEXPORT void jl_memprofile_track_alloc(void *v, uint8_t tag, size_t allocsz)
+// Helper function that makes it easy to take a chunk of plain-old-data that was
+// allocated for an Array and find the "holding" jl_array_t object.
+JL_DLLEXPORT jl_array_t * jl_memprofile_find_malloc_array(void * adata)
+{
+    // We walk every thread, so we need to disable the GC while we do this.
+    int prev_value = jl_gc_enable(0);
+
+    // For each thread
+    for (int t_i = 0; t_i < jl_n_threads; t_i++) {
+        // Get its thread-local storage
+        jl_ptls_t ptls2 = jl_all_tls_states[t_i];
+
+        // Take a look at the malloc'ed arrays for this thread
+        mallocarray_t *ma = ptls2->heap.mallocarrays;
+
+        // Zoom through seeing if the given pointer matches this array's data pointer
+        while (ma != NULL) {
+            if (ma->a->data == adata) {
+                // If it matches, re-enable the GC and return that value
+                jl_gc_enable(prev_value);
+                return ma->a;
+            }
+            ma = ma->next;
+        }
+    }
+
+    // We were unable to find it. :(
+    jl_gc_enable(prev_value);
+    return NULL;
+}
+
+JL_DLLEXPORT void jl_memprofile_track_alloc(void *v, uint16_t tag, size_t allocsz)
 {
     // Filter out this call with our tag filter
     if ((tag & memprof_tag_filter) != tag)
@@ -158,13 +163,16 @@ JL_DLLEXPORT void jl_memprofile_track_alloc(void *v, uint8_t tag, size_t allocsz
         memprof_bt_data[memprof_bt_data_size++] = (uintptr_t)NULL;
     }
 
-    // Next up; store allocation information
+    // Next up; store allocation/type information
     memprof_alloc_data[memprof_alloc_data_size].memory_location = v;
     memprof_alloc_data[memprof_alloc_data_size].time = jl_clock_now();
 
     // If we are deallocating, then we set allocsz to 0 and must pair this alloc_data entry
     // with a previous allocation within alloc_data to make sense of it.
     memprof_alloc_data[memprof_alloc_data_size].allocsz = allocsz;
+
+    // In general, we don't know the type at this point; we make use of `jl_memprofile_set_typeof()`.
+    memprof_alloc_data[memprof_alloc_data_size].type = NULL;
 
     // Tags are used to track the "domain" of this chunk of memory
     memprof_alloc_data[memprof_alloc_data_size].tag = tag;
@@ -177,7 +185,19 @@ JL_DLLEXPORT void jl_memprofile_track_alloc(void *v, uint8_t tag, size_t allocsz
     }
 }
 
-JL_DLLEXPORT void jl_memprofile_track_dealloc(void *v, uint8_t tag)
+void jl_memprofile_set_typeof(void * v, void * ty)
 {
-    jl_memprofile_track_alloc(v, tag, 0);
+    // We only search the very last allocation
+    if (memprof_alloc_data_size > 0) {
+        if (memprof_alloc_data[memprof_alloc_data_size-1].memory_location == v) {
+            // If it matches, then set the type pointer
+            memprof_alloc_data[memprof_alloc_data_size-1].type = ty;
+        }
+    }
+}
+
+
+JL_DLLEXPORT void jl_memprofile_track_dealloc(void *v, uint16_t tag)
+{
+    jl_memprofile_track_alloc(v, tag | JL_MEMPROF_TAG_DEALLOC, 0);
 }

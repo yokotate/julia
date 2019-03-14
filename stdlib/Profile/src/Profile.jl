@@ -13,7 +13,7 @@ function __init__()
         timer_ms = 0.01
     end
     Time.init(1_000_000, timer_ms)
-    Memory.init(20_000_000, 1_000_000, 0xff)
+    Memory.init(20_000_000, 1_000_000, 0xffff)
 end
 
 include("stacktrace_tools.jl")
