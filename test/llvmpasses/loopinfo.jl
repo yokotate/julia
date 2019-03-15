@@ -3,24 +3,47 @@
 # RUN: julia --startup-file=no %s %t && llvm-link -S %t/* -o %t/module.ll
 # RUN: cat %t/module.ll | FileCheck %s
 # RUN: cat %t/module.ll | opt -load libjulia%shlibext -LowerSIMDLoop -S - | FileCheck %s -check-prefix=LOWER
+# RUN: julia --startup-file=no %s %t -O && llvm-link -S %t/* -o %t/module.ll
+# RUN: cat %t/module.ll | FileCheck %s -check-prefix=FINAL
 using InteractiveUtils
 using Printf
 
+## Notes:
+# This script uses the `emit` function (defined at the end) to emit either
+# optimized or unoptimized LLVM IR. Each function is emitted individually and
+# `llvm-link` is used to create a single module that can be passed to opt.
+# The order in which files are emitted and linked is important since `lit` will
+# process the test cases in order.
+#
+# There are three different test prefixes defined:
+# - `CHECK`: Checks the result of codegen
+# - `LOWER`: Checks the result of -LowerSIMDLoop
+# - `FINAL`: Checks the result of running the entire pipeline
+
+# get a temporary directory
 dir = ARGS[1]
 rm(dir, force=true, recursive=true)
 mkdir(dir)
 
+# toggle between unoptimized (CHECK/LOWER) and optimized IR (FINAL).
+optimize=false
+if length(ARGS) >= 2
+    optimize = ARGS[2]=="-O"
+end
+
 # CHECK-LABEL: @julia_simdf_
 # LOWER-LABEL: @julia_simdf_
+# FINAL-LABEL: @julia_simdf_
 function simdf(X)
     acc = zero(eltype(X))
     @simd for x in X
         acc += x
 # CHECK: call void @julia.loopinfo_marker(), {{.*}}, !julia.loopinfo [[LOOPINFO:![0-9]+]]
 # LOWER-NOT: llvm.mem.parallel_loop_access
-# LOWER-NOT: call void @julia.loopinfo_marker()
 # LOWER: fadd fast double
+# LOWER-NOT: call void @julia.loopinfo_marker()
 # LOWER: br {{.*}}, !llvm.loop [[LOOPID:![0-9]+]]
+# FINAL: fadd fast <{{[0-9]+}} x double>
     end
     acc
 end
@@ -40,32 +63,42 @@ function simdf2(X)
     acc
 end
 
-@noinline iterate(i) = @show i
+@noinline iteration(i) = @show i
 
 # CHECK-LABEL: @julia_loop_unroll
 # LOWER-LABEL: @julia_loop_unroll
+# FINAL-LABEL: @julia_loop_unroll
 @eval function loop_unroll(N)
     for i in 1:N
-        iterate(i)
+        iteration(i)
         $(Expr(:loopinfo, (Symbol("llvm.loop.unroll.count"), 3)))
 # CHECK: call void @julia.loopinfo_marker(), {{.*}}, !julia.loopinfo [[LOOPINFO3:![0-9]+]]
 # LOWER-NOT: call void @julia.loopinfo_marker()
 # LOWER: br {{.*}}, !llvm.loop [[LOOPID3:![0-9]+]]
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL-NOT: call i64 @julia_iteration
+# FINAL: br
     end
 end
 
+# Example from a GPU kernel where we want to unroll the outer loop
+# and the inner loop is a boundschecked single iteration loop.
 # CHECK-LABEL: @julia_loop_unroll2
 # LOWER-LABEL: @julia_loop_unroll2
-@eval function loop_unroll2(I)
+# FINAL-LABEL: @julia_loop_unroll2
+@eval function loop_unroll2(J, I)
     for i in 1:10
-        for j in I
-            j == 2 && continue
-            iterate(i)
+        for j in J
+            1 <= j <= I && continue
+            iteration(i)
         end
         $(Expr(:loopinfo, (Symbol("llvm.loop.unroll.full"),)))
 # CHECK: call void @julia.loopinfo_marker(), {{.*}}, !julia.loopinfo [[LOOPINFO4:![0-9]+]]
 # LOWER-NOT: call void @julia.loopinfo_marker()
 # LOWER: br {{.*}}, !llvm.loop [[LOOPID4:![0-9]+]]
+# FINAL-COUNT-10: call i64 @julia_iteration
     end
 end
 
@@ -89,7 +122,7 @@ function emit(f, tt...)
     global counter
     name = nameof(f)
     open(joinpath(dir, @sprintf("%05d-%s.ll", counter, name)), "w") do io
-        code_llvm(io, f, tt, raw=true, optimize=false, dump_module=true, debuginfo=:none)
+        code_llvm(io, f, tt, raw=true, optimize=optimize, dump_module=true, debuginfo=:none)
     end
     counter+=1
 end
@@ -98,4 +131,4 @@ end
 emit(simdf, Vector{Float64})
 emit(simdf2, Vector{Float64})
 emit(loop_unroll, Int64)
-emit(loop_unroll2, Int64)
+emit(loop_unroll2, Int64, Int64)
