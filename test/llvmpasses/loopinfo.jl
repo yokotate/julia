@@ -1,7 +1,8 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# RUN: julia --startup-file=no %s %t | llvm-link -S %t/* | FileCheck %s
-# RUN: julia --startup-file=no %s %t | llvm-link -S %t/* | opt -load libjulia%shlibext -LowerSIMDLoop -S - | FileCheck %s -check-prefix=LOWER
+# RUN: julia --startup-file=no %s %t && llvm-link -S %t/* -o %t/module.ll
+# RUN: cat %t/module.ll | FileCheck %s
+# RUN: cat %t/module.ll | opt -load libjulia%shlibext -LowerSIMDLoop -S - | FileCheck %s -check-prefix=LOWER
 using InteractiveUtils
 using Printf
 
