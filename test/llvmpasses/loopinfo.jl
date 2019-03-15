@@ -85,6 +85,8 @@ end
 
 # Example from a GPU kernel where we want to unroll the outer loop
 # and the inner loop is a boundschecked single iteration loop.
+# The `@show` is used to bloat the loop and `FINAL-COUNT-10:` seems
+# not to be working so we duplicate the checks.
 # CHECK-LABEL: @julia_loop_unroll2
 # LOWER-LABEL: @julia_loop_unroll2
 # FINAL-LABEL: @julia_loop_unroll2
@@ -92,13 +94,37 @@ end
     for i in 1:10
         for j in J
             1 <= j <= I && continue
+            @show (i,j)
             iteration(i)
         end
         $(Expr(:loopinfo, (Symbol("llvm.loop.unroll.full"),)))
 # CHECK: call void @julia.loopinfo_marker(), {{.*}}, !julia.loopinfo [[LOOPINFO4:![0-9]+]]
 # LOWER-NOT: call void @julia.loopinfo_marker()
 # LOWER: br {{.*}}, !llvm.loop [[LOOPID4:![0-9]+]]
-# FINAL-COUNT-10: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL: call i64 @julia_iteration
+# FINAL-NOT: call i64 @julia_iteration
+    end
+end
+
+# FINAL-LABEL: @julia_notunroll
+function notunroll(J, I)
+    for i in 1:10
+        for j in J
+            1 <= j <= I && continue
+            @show (i,j)
+            iteration(i)
+# FINAL: call i64 @julia_iteration
+# FINAL-NOT: call i64 @julia_iteration
+        end
     end
 end
 
@@ -132,3 +158,4 @@ emit(simdf, Vector{Float64})
 emit(simdf2, Vector{Float64})
 emit(loop_unroll, Int64)
 emit(loop_unroll2, Int64, Int64)
+emit(notunroll, Int64, Int64)
