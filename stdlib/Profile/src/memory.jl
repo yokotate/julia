@@ -120,7 +120,8 @@ function update_live_object(a::AllocationInfo)
     if array_addr != C_NULL
         obj = unsafe_pointer_to_objref(array_addr)
     else
-        obj = unsafe_pointer_to_objref(Ptr{Cvoid}(a.address))
+        # Not doing this right now, because it appears that they can ~~disappear~~
+        obj = nothing # unsafe_pointer_to_objref(Ptr{Cvoid}(a.address))
     end
     
     return AllocationInfo(
@@ -140,7 +141,7 @@ function Base.show(io::IO, a::AllocationInfo)
     md = join(tag_lookup(memory_domain_map, a.tag), ", ")
     at = join(tag_lookup(allocator_map, a.tag), ", ")
     T = a.T === nothing ? "(?)" : string(a.T)
-    print(io, "AllocationInfo ($(a.allocsz) B, domain: ($(md)), allocator: ($(at)), type: $(T))")
+    print(io, "AllocationInfo (@$(repr(a.address)): $(a.allocsz) B, domain: ($(md)), allocator: ($(at)), type: $(T))")
 end
 
 """
@@ -190,7 +191,7 @@ function close_AI(a::AllocationInfo, d::allocation_info_t, dealloc_stacktrace)
     if d.T == C_NULL
         d_type = nothing
     else
-        d_type = unsafe_pointer_to_objref(d_type)
+        d_type = unsafe_pointer_to_objref(d.T)
     end
 
     nstr(x) = x === nothing ? "nothing" : string(x)
@@ -215,7 +216,11 @@ macro memprofile(ex)
             # Run a GC before we start profiling, to eliminate "ghost" chunks
             Base.GC.gc()
             start_memprofile()
-            $(esc(ex))
+
+            # Explicit `begin/end` to help GC scope resolution
+            begin
+                $(esc(ex))
+            end
         finally
             # Run a GC afterwards to eliminate things that aren't actually leaked,
             # they just weren't cleaned up before we stopped profiling.
@@ -299,13 +304,13 @@ function read_and_coalesce_memprofile_data()
 
         # Are we an allocation?
         if a.allocsz != 0
-            @info("Opening $(chunk_id) $(a.allocsz)")
+            @info("Opening $(chunk_id) $(a.T) $(a.allocsz)")
 
             # Assert that we're not inserting an identical chunk
             @assert !(chunk_id in keys(open_chunks_map)) "Doubly-opened memory chunk!"
             open_chunks_map[chunk_id] = open_AI(a, bt)
         else
-            @info("Closing $(chunk_id)")
+            @info("Closing $(chunk_id) $(a.T)")
 
             # If this `a` represents a free(), let's see if we're closing a previously opened chunk.
             if !(chunk_id in keys(open_chunks_map))

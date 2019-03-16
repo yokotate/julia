@@ -12,7 +12,7 @@ function foo()
 
     # Create lots of little objects
     tups = Any[(1,), (2,3)]
-    for idx in 1:4
+    for idx in 1:20
         addition = (tups[end-1]..., tups[end]...)
         addition = addition[2:end]
         push!(tups, addition)
@@ -23,13 +23,22 @@ function foo()
     return nothing
 end
 
-exclude_pool = xor(0xff, Profile.Memory.allocator_map[:pool])
+function test()
+    Profile.Memory.init(50_000_000, 1_000_000, 0xffff)
+    global forever_chunks = []
+    @memprofile foo()
+end
 
-Profile.Memory.init(50_000_000, 1_000_000, 0xffff)
-forever_chunks = []
-@memprofile foo()
-forever_chunks = []
-Profile.Memory.init(50_000_000, 1_000_000, 0xffff)
-@memprofile foo()
+@info("Precompiling test()")
+Base.precompile(test, ())
 
+@info("Running test()")
+test()
+
+@info("Reading memprofile data...")
 open_chunks, closed_chunks, ghost_chunks = read_and_coalesce_memprofile_data()
+println("open_chunks:")
+display(open_chunks)
+
+# This often crashes us, if we've held on to a bad object address
+Base.GC.gc()
