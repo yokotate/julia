@@ -148,7 +148,7 @@ module IteratorsMD
         I = inc((), i.I, first(iter).I, last(iter).I)
         if I === nothing
             throw(BoundsError(a, i))
-        else
+        end
         return I[2]
     end
     function Base.prevind(a::AbstractArray{<:Any,N}, i::CartesianIndex{N}) where {N}
@@ -156,7 +156,7 @@ module IteratorsMD
         I = dec((), i.I, first(iter).I, last(iter).I)
         if I === nothing
             throw(BoundsError(a, i))
-        else
+        end
         return I[2]
     end
 
