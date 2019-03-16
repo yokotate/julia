@@ -145,13 +145,19 @@ module IteratorsMD
     # nextind and prevind with CartesianIndex
     function Base.nextind(a::AbstractArray{<:Any,N}, i::CartesianIndex{N}) where {N}
         iter = CartesianIndices(axes(a))
-        _, I = inc((), i.I, first(iter).I, last(iter).I)
-        return I
+        I = inc((), i.I, first(iter).I, last(iter).I)
+        if I === nothing
+            throw(BoundsError(a, i))
+        else
+        return I[2]
     end
     function Base.prevind(a::AbstractArray{<:Any,N}, i::CartesianIndex{N}) where {N}
         iter = CartesianIndices(axes(a))
-        _, I = dec((), i.I, first(iter).I, last(iter).I)
-        return I
+        I = dec((), i.I, first(iter).I, last(iter).I)
+        if I === nothing
+            throw(BoundsError(a, i))
+        else
+        return I[2]
     end
 
     # Iteration over the elements of CartesianIndex cannot be supported until its length can be inferred,
