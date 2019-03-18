@@ -928,7 +928,8 @@ JL_DLLEXPORT jl_value_t *jl_gc_big_alloc(jl_ptls_t ptls, size_t sz)
         jl_throw(jl_memory_exception);
     gc_invoke_callbacks(jl_gc_cb_notify_external_alloc_t,
         gc_cblist_notify_external_alloc, (v, allocsz));
-    jl_gc_count_allocd(v, allocsz, JL_MEMPROF_TAG_DOMAIN_CPU | JL_MEMPROF_TAG_ALLOC_BIGALLOC);
+    jl_gc_count_allocd(jl_valueof(&v->header), allocsz, JL_MEMPROF_TAG_DOMAIN_CPU |
+                                                        JL_MEMPROF_TAG_ALLOC_BIGALLOC);
     gc_num.bigalloc++;
 #ifdef MEMDEBUG
     memset(v, 0xee, allocsz);
@@ -968,7 +969,8 @@ static bigval_t **sweep_big_list(int sweep_full, bigval_t **pv) JL_NOTSAFEPOINT
             *pv = nxt;
             if (nxt)
                 nxt->prev = pv;
-            jl_gc_count_freed(v, v->sz&~3, JL_MEMPROF_TAG_DOMAIN_CPU | JL_MEMPROF_TAG_ALLOC_BIGALLOC);
+            jl_gc_count_freed(jl_valueof(&v->header), v->sz&~3, JL_MEMPROF_TAG_DOMAIN_CPU |
+                                                                JL_MEMPROF_TAG_ALLOC_BIGALLOC);
 #ifdef MEMDEBUG
             memset(v, 0xbb, v->sz&~3);
 #endif
@@ -2752,10 +2754,12 @@ static void gc_track_pool_frees()
                     while ((char *)v <= lim) {
                         // If this object is live but unmarked, then it's about to be freed,
                         // so track that via jl_gc_count_freed().
-                        jl_value_t * ptr = jl_gc_internal_obj_base_ptr(v);
-                        if (ptr != NULL && jl_astaggedvalue(ptr)->bits.gc == GC_CLEAN ) {
-                            jl_gc_count_freed(ptr, pg->osize, JL_MEMPROF_TAG_DOMAIN_CPU |
-                                                              JL_MEMPROF_TAG_ALLOC_POOLALLOC);
+                        if (v->bits.gc == GC_CLEAN) {
+                            jl_value_t * ptr = jl_gc_internal_obj_base_ptr(v);
+                            if (ptr != NULL) {
+                                jl_gc_count_freed(ptr, pg->osize, JL_MEMPROF_TAG_DOMAIN_CPU |
+                                                                  JL_MEMPROF_TAG_ALLOC_POOLALLOC);
+                            }
                         }
 
                         // Move to next cell in the page
@@ -2906,7 +2910,7 @@ static int _jl_gc_collect(jl_ptls_t ptls, int full)
     gc_sweep_other(ptls, sweep_full);
     gc_scrub();
     gc_verify_tags();
-    //gc_track_pool_frees();
+    gc_track_pool_frees();
     gc_sweep_pool(sweep_full);
     if (sweep_full)
         gc_sweep_perm_alloc();

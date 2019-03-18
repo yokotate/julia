@@ -195,7 +195,7 @@ function close_AI(a::AllocationInfo, d::allocation_info_t, dealloc_stacktrace)
     end
 
     nstr(x) = x === nothing ? "nothing" : string(x)
-    @assert ((d_type == nothing && a.T == nothing) || d_type != a.T) "Mismatched types! ($(nstr(d_type)) != $(nstr(a.T)))"
+    @assert ((d_type == nothing || a.T == nothing) || d_type == a.T) "Mismatched types! ($(nstr(d_type)) != $(nstr(a.T)))"
 
     return AllocationInfo(
         a.address,
